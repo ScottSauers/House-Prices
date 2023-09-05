@@ -1,0 +1,91 @@
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import Lasso, Ridge
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.feature_selection import SelectKBest, f_regression
+
+# Load the training data once into memory
+train_file_path = '/Users/scott/Downloads/house-prices/house_train_engineered.csv'
+train_df = pd.read_csv(train_file_path)
+
+# Separate features and target in the training data
+X_train = train_df.drop(columns=['SalePrice', 'Id'])
+y_train = train_df['SalePrice']
+
+# Feature reduction
+selector = SelectKBest(score_func=f_regression, k=50)
+X_train_reduced = selector.fit_transform(X_train, y_train)
+
+# Define a more targeted range of alpha values
+alpha_values_expanded = np.linspace(0.00001, 500, num=1000)
+
+# Additional hyperparameters with expanded range
+lasso_max_iter_values = [10000, 50000, 100000]
+ridge_max_iter_values = [5000, 10000, 50000]
+lasso_tol_values = [1e-4, 1e-5, 1e-6]
+ridge_tol_values = [1e-2, 1e-3, 1e-4]
+
+# Initialize models
+lasso = Lasso()
+ridge = Ridge()
+
+
+# For Lasso
+lasso_alpha_values_expanded = np.linspace(0.000001, 0.0001, num=100)  # Around 0.00001
+lasso_max_iter_values_expanded = [48000, 49000, 50000, 51000, 52000]  # Around 50000
+lasso_tol_values_expanded = [0.00001, 0.0001, 0.001, 0.0005, 0.00005]  # Around 0.00001
+
+lasso_param_grid_expanded = {
+    'alpha': lasso_alpha_values_expanded,
+    'max_iter': lasso_max_iter_values_expanded,
+    'tol': lasso_tol_values_expanded
+}
+
+# For Ridge
+ridge_alpha_values_expanded = np.linspace(110, 120, num=100)  # Around 116.6
+ridge_max_iter_values_expanded = [9500, 9700, 9900, 10000, 10200, 10400]  # Around 10000
+ridge_tol_values_expanded = [9e-05, 1e-04, 1.1e-04, 1.2e-04]  # Around 1e-04
+
+ridge_param_grid_expanded = {
+    'alpha': ridge_alpha_values_expanded,
+    'max_iter': ridge_max_iter_values_expanded,
+    'tol': ridge_tol_values_expanded
+}
+
+# RandomizedSearchCV with expanded hyperparameters
+lasso_search = RandomizedSearchCV(lasso, param_distributions=lasso_param_grid_expanded, n_iter=1000, cv=5, scoring='neg_mean_squared_error', verbose=1, n_jobs=-1)
+ridge_search = RandomizedSearchCV(ridge, param_distributions=ridge_param_grid_expanded, n_iter=1000, cv=5, scoring='neg_mean_squared_error', verbose=1, n_jobs=-1)
+
+# Fit the models to the reduced training set
+lasso_search.fit(X_train_reduced, np.log1p(y_train))
+ridge_search.fit(X_train_reduced, np.log1p(y_train))
+
+# Print the optimal hyperparameters
+print(f"Lasso Optimal Hyperparameters: {lasso_search.best_params_}")
+print(f"Ridge Optimal Hyperparameters: {ridge_search.best_params_}")
+
+# Print the mean squared error across CV folds
+print(f"Lasso CV Negative Mean Squared Error: {lasso_search.best_score_}")
+print(f"Ridge CV Negative Mean Squared Error: {ridge_search.best_score_}")
+
+# Load the test data and preprocess
+test_file_path = '/Users/scott/Downloads/house-prices/house_test_engineered.csv'
+test_df = pd.read_csv(test_file_path)
+
+# Feature scaling and selection for test data (drop 'Id' and 'SalePrice' if present)
+X_test = test_df.drop(columns=['Id', 'SalePrice'], errors='ignore')
+X_test_reduced = selector.transform(X_test)
+
+# Generate predictions
+lasso_predictions = np.expm1(lasso_search.best_estimator_.predict(X_test_reduced))
+ridge_predictions = np.expm1(ridge_search.best_estimator_.predict(X_test_reduced))
+
+# Create submission DataFrames
+submission_lasso = pd.DataFrame({'Id': test_df['Id'], 'SalePrice': lasso_predictions})
+submission_ridge = pd.DataFrame({'Id': test_df['Id'], 'SalePrice': ridge_predictions})
+
+# Save submission files
+submission_lasso.to_csv('submission_lasso.csv', index=False)
+submission_ridge.to_csv('submission_ridge.csv', index=False)
+
+print("Submission files generated successfully.")
