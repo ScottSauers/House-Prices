@@ -1,0 +1,75 @@
+import pandas as pd
+import numpy as np
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.feature_selection import SelectKBest, f_regression
+
+# Load the training data once into memory
+train_file_path = '/Users/scott/Downloads/house-prices/house_train_engineered.csv'
+train_df = pd.read_csv(train_file_path)
+
+# Separate features and target in the training data
+X_train = train_df.drop(columns=['SalePrice', 'Id'])
+y_train = train_df['SalePrice']
+
+# Feature reduction
+selector = SelectKBest(score_func=f_regression, k=50)
+X_train_reduced = selector.fit_transform(X_train, y_train)
+
+# Initialize models
+svr = SVR()
+random_forest = RandomForestRegressor()
+
+# Hyperparameter grid for SVR
+svr_param_grid = {
+    'C': np.linspace(0.1, 10, num=100),
+    'kernel': ['linear', 'rbf'],
+    'epsilon': np.linspace(0.01, 0.1, num=100)
+}
+
+# Hyperparameter grid for Random Forest
+random_forest_param_grid = {
+    'n_estimators': [100, 200, 300, 400, 500],
+    'max_depth': [None, 10, 20, 30, 40, 50],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4]
+}
+
+# RandomizedSearchCV for SVR and Random Forest
+svr_search = RandomizedSearchCV(svr, param_distributions=svr_param_grid, n_iter=1000, cv=5, scoring='neg_mean_squared_error', verbose=1, n_jobs=-1)
+random_forest_search = RandomizedSearchCV(random_forest, param_distributions=random_forest_param_grid, n_iter=1000, cv=5, scoring='neg_mean_squared_error', verbose=1, n_jobs=-1)
+
+# Fit the models to the reduced training set
+svr_search.fit(X_train_reduced, np.log1p(y_train))
+random_forest_search.fit(X_train_reduced, np.log1p(y_train))
+
+# Print the optimal hyperparameters
+print(f"SVR Optimal Hyperparameters: {svr_search.best_params_}")
+print(f"Random Forest Optimal Hyperparameters: {random_forest_search.best_params_}")
+
+# Print the mean squared error across CV folds
+print(f"SVR CV Negative Mean Squared Error: {svr_search.best_score_}")
+print(f"Random Forest CV Negative Mean Squared Error: {random_forest_search.best_score_}")
+
+# Load the test data and preprocess
+test_file_path = '/Users/scott/Downloads/house-prices/house_test_engineered.csv'
+test_df = pd.read_csv(test_file_path)
+
+# Feature scaling and selection for test data (drop 'Id' and 'SalePrice' if present)
+X_test = test_df.drop(columns=['Id', 'SalePrice'], errors='ignore')
+X_test_reduced = selector.transform(X_test)
+
+# Generate predictions
+svr_predictions = np.expm1(svr_search.best_estimator_.predict(X_test_reduced))
+random_forest_predictions = np.expm1(random_forest_search.best_estimator_.predict(X_test_reduced))
+
+# Create submission DataFrames
+submission_svr = pd.DataFrame({'Id': test_df['Id'], 'SalePrice': svr_predictions})
+submission_random_forest = pd.DataFrame({'Id': test_df['Id'], 'SalePrice': random_forest_predictions})
+
+# Save submission files
+submission_svr.to_csv('submission_svr.csv', index=False)
+submission_random_forest.to_csv('submission_random_forest.csv', index=False)
+
+print("Submission files generated successfully.")
